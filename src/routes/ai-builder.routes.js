@@ -13,59 +13,128 @@ const router = express.Router();
 const STRIPE_PUBLISHABLE_KEY = process.env.STRIPE_PUBLISHABLE_KEY || 'pk_test_placeholder';
 
 /**
+ * Helper function to wait (replacement for deprecated waitForTimeout)
+ */
+const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+/**
  * Take a full-page screenshot of a website
- * Captures the entire page content for better analysis
+ * Handles popups, cookie banners, and age verification
  */
 const takeScreenshot = async (url) => {
   let browser;
   try {
     browser = await puppeteer.launch({
       headless: 'new',
-      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-web-security']
+      args: [
+        '--no-sandbox', 
+        '--disable-setuid-sandbox', 
+        '--disable-web-security',
+        '--disable-features=IsolateOrigins,site-per-process'
+      ]
     });
     const page = await browser.newPage();
     
-    // Set a larger viewport
+    // Set viewport
     await page.setViewport({ width: 1920, height: 1080 });
     
-    // Set user agent to avoid bot detection
+    // Set user agent
     await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
     
-    // Navigate and wait for full load
+    // Navigate
+    console.log(`📸 Navigating to ${url}...`);
     await page.goto(url, { 
-      waitUntil: ['networkidle0', 'domcontentloaded'], 
-      timeout: 45000 
+      waitUntil: 'networkidle2', 
+      timeout: 30000 
     });
     
-    // Wait extra time for JS to render
-    await page.waitForTimeout(2000);
+    // Wait for page to render
+    await delay(2000);
     
-    // Scroll down to trigger lazy loading
+    // Try to close common popups/modals/cookie banners
+    console.log(`🔍 Looking for popups to close...`);
+    await page.evaluate(() => {
+      // Common popup/modal selectors
+      const popupSelectors = [
+        // Age verification buttons (click "Yes", "Oui", "Enter", etc.)
+        'button:contains("Oui")', 'button:contains("Yes")', 'button:contains("Enter")',
+        '[class*="age-verify"] button', '[class*="age-gate"] button',
+        '[id*="age-verify"] button', '[id*="age-gate"] button',
+        // Cookie consent
+        '[class*="cookie"] button[class*="accept"]',
+        '[class*="cookie"] button[class*="agree"]',
+        '[id*="cookie"] button',
+        'button[class*="accept-cookies"]',
+        '.cc-btn.cc-dismiss',
+        '#onetrust-accept-btn-handler',
+        // Generic close buttons
+        '[class*="modal"] [class*="close"]',
+        '[class*="popup"] [class*="close"]',
+        '[aria-label="Close"]',
+        '.close-modal', '.close-popup',
+        // Shopify specific
+        '.shopify-section-popup button',
+        '[class*="newsletter"] button[class*="close"]'
+      ];
+      
+      // Try clicking buttons with specific text
+      const buttons = document.querySelectorAll('button, a.btn, [role="button"]');
+      buttons.forEach(btn => {
+        const text = btn.textContent?.toLowerCase() || '';
+        if (text.includes('oui') || text.includes('yes') || text.includes('enter') || 
+            text.includes('accept') || text.includes('agree') || text.includes('j\'accepte') ||
+            text.includes('continuer') || text.includes('continue')) {
+          try { btn.click(); } catch(e) {}
+        }
+      });
+      
+      // Try clicking close buttons
+      popupSelectors.forEach(selector => {
+        try {
+          const el = document.querySelector(selector);
+          if (el) el.click();
+        } catch(e) {}
+      });
+      
+      // Remove overlay elements
+      const overlays = document.querySelectorAll('[class*="overlay"], [class*="modal"], [class*="popup"], [class*="age-gate"]');
+      overlays.forEach(el => {
+        try { el.remove(); } catch(e) {}
+      });
+    });
+    
+    // Wait after closing popups
+    await delay(1500);
+    
+    // Scroll to load lazy content
+    console.log(`📜 Scrolling page...`);
     await page.evaluate(async () => {
       await new Promise((resolve) => {
         let totalHeight = 0;
-        const distance = 500;
+        const distance = 400;
+        const maxScrolls = 20;
+        let scrollCount = 0;
         const timer = setInterval(() => {
           const scrollHeight = document.body.scrollHeight;
           window.scrollBy(0, distance);
           totalHeight += distance;
-          if (totalHeight >= scrollHeight) {
+          scrollCount++;
+          if (totalHeight >= scrollHeight || scrollCount >= maxScrolls) {
             clearInterval(timer);
-            window.scrollTo(0, 0); // Scroll back to top
+            window.scrollTo(0, 0);
             resolve();
           }
-        }, 100);
+        }, 150);
       });
     });
     
-    // Wait for lazy-loaded content
-    await page.waitForTimeout(1000);
+    await delay(1000);
     
-    // Take full page screenshot
+    // Take screenshot
     const screenshot = await page.screenshot({ 
       type: 'jpeg', 
-      quality: 85,
-      fullPage: true // Capture entire page
+      quality: 90,
+      fullPage: true
     });
     
     console.log(`📸 Screenshot captured: ${(screenshot.length / 1024).toFixed(1)}KB`);
