@@ -30,6 +30,7 @@ import gdprRoutes from './src/routes/gdpr.routes.js';
 import nodeRoutes from './src/routes/node.routes.js';
 import siteGeneratorRoutes from './src/routes/site-generator.routes.js';
 import deploymentRoutes from './src/routes/deployment.routes.js';
+import aiBuilderRoutes from './src/routes/ai-builder.routes.js';
 
 import { initTelegramBot } from './src/services/telegram.service.js';
 
@@ -143,6 +144,7 @@ app.use('/api/gdpr', gdprRoutes);
 app.use('/api/nodes', nodeRoutes);
 app.use('/api/site-generator', siteGeneratorRoutes);
 app.use('/api/deployment', deploymentRoutes);
+app.use('/api/ai-builder', aiBuilderRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {
