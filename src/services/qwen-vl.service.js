@@ -27,10 +27,6 @@ export const analyzeWebsiteWithQwen = async (screenshots, domain, userInfo = {})
   console.log(`🔍 Qwen3-VL: Analyzing ${screenshots.length} screenshots for ${domain}`);
 
   try {
-    // Use the first (homepage) screenshot for main analysis
-    const mainScreenshot = screenshots[0];
-    const base64Image = cleanBase64(mainScreenshot.screenshot);
-
     // Build user info context
     const userInfoContext = Object.keys(userInfo).length > 0 
       ? `\n\nInformations fournies par l'utilisateur:
@@ -42,27 +38,29 @@ export const analyzeWebsiteWithQwen = async (screenshots, domain, userInfo = {})
 - Budget: ${userInfo.budget || 'Standard'}`
       : '';
 
-    const response = await axios.post(QWEN_VL_URL, {
-      model: QWEN_MODEL,
-      messages: [
-        {
-          role: 'system',
-          content: `Tu es un expert OCR et analyste web. Tu extrais TOUT le texte visible d'une image de site web avec une précision maximale. Tu identifies le nom exact de l'entreprise, les produits, services, prix, et toutes les informations de contact. Tu réponds UNIQUEMENT en JSON valide, sans texte avant ou après. IMPORTANT: Lis attentivement TOUT le texte visible sur l'image, y compris les menus, titres, descriptions, prix, et footer.`
-        },
-        {
-          role: 'user',
-          content: [
-            {
-              type: 'image_url',
-              image_url: { url: `data:image/jpeg;base64,${base64Image}` }
-            },
-            {
-              type: 'text',
-              text: `TACHE: Extrais TOUT le texte visible de cette image du site ${domain} et analyse-le.${userInfoContext}
+    // Build content array with ALL screenshots
+    const contentArray = [];
+    
+    // Add all images (max 5 to avoid token limits)
+    const screenshotsToAnalyze = screenshots.slice(0, 5);
+    screenshotsToAnalyze.forEach((s, idx) => {
+      const base64Image = cleanBase64(s.screenshot);
+      contentArray.push({
+        type: 'image_url',
+        image_url: { url: `data:image/jpeg;base64,${base64Image}` }
+      });
+      console.log(`📷 Qwen3-VL: Added image ${idx + 1}/${screenshotsToAnalyze.length} (${s.page})`);
+    });
+    
+    // Add the text prompt
+    const pagesList = screenshotsToAnalyze.map(s => s.page).join(', ');
+    contentArray.push({
+      type: 'text',
+      text: `TACHE: Analyse ces ${screenshotsToAnalyze.length} captures d'écran du site ${domain} (pages: ${pagesList}) et extrais TOUTES les informations.${userInfoContext}
 
 ETAPE 1 - EXTRACTION DU TEXTE (TRES IMPORTANT):
 - Lis le LOGO ou le NOM de l'entreprise en haut de la page
-- Lis TOUS les titres et sous-titres
+- Lis TOUS les titres et sous-titres de CHAQUE page
 - Lis les descriptions de produits/services avec leurs PRIX
 - Lis les informations de contact (telephone, email, adresse)
 - Lis le menu de navigation
@@ -73,7 +71,7 @@ ETAPE 2 - IDENTIFICATION DES COULEURS:
 - Couleur SECONDAIRE: fond, texte (souvent sombre)
 - Couleur d'ACCENT: CTA, mise en valeur
 
-ETAPE 3 - DETECTION DES SECTIONS presentes:
+ETAPE 3 - DETECTION DES SECTIONS presentes sur l'ensemble des pages:
 - hero, features, services, products, gallery, team, testimonials, pricing, faq, about, contact
 
 Retourne un JSON avec cette structure exacte:
@@ -88,50 +86,44 @@ Retourne un JSON avec cette structure exacte:
     "products": [{"name": "Produit 1", "price": "prix si visible", "description": "description"}],
     "team": [{"name": "Nom", "role": "Poste"}],
     "testimonials": [{"quote": "citation", "author": "auteur", "role": "entreprise"}],
-    "contactInfo": {
-      "phone": "telephone si visible",
-      "email": "email si visible",
-      "address": "adresse si visible"
-    },
+    "contactInfo": {"phone": "telephone", "email": "email", "address": "adresse"},
     "openingHours": "horaires si visibles",
     "visualStyle": "description du style visuel actuel",
-    "detectedColors": {
-      "mainColor": "#hex de la couleur principale visible",
-      "backgroundColor": "#hex du fond principal",
-      "accentColor": "#hex de la couleur d'accent"
-    },
+    "detectedColors": {"mainColor": "#hex", "backgroundColor": "#hex", "accentColor": "#hex"},
     "detectedSections": ["hero", "services", "about", "contact"]
   },
   "creativeBrief": {
-    "projectName": "Nom du projet de refonte",
-    "objective": "Objectif de la refonte en 2-3 phrases",
+    "projectName": "Nom du projet",
+    "objective": "Objectif de la refonte",
     "targetAudience": "Public cible",
-    "brandVoice": "Ton de communication recommande",
+    "brandVoice": "Ton de communication",
     "siteType": "landing | business | ecommerce | portfolio | restaurant | agency",
-    "colors": {
-      "primary": "#hex - DOIT etre la couleur principale du site original ou une version modernisee",
-      "secondary": "#hex - couleur sombre pour texte/fond",
-      "accent": "#hex - couleur vive pour CTA et accents"
-    },
+    "colors": {"primary": "#hex", "secondary": "#hex", "accent": "#hex"},
     "suggestedSections": ["navbar", "hero", "features", "services", "about", "testimonials", "cta", "contact", "footer"],
-    "keyFeatures": ["fonctionnalites", "recommandees"],
-    "uniqueSellingPoints": ["points", "forts", "a", "mettre", "en", "avant"]
+    "keyFeatures": ["fonctionnalites"],
+    "uniqueSellingPoints": ["points", "forts"]
   },
-  "seo": {
-    "title": "Titre SEO optimise",
-    "description": "Meta description SEO",
-    "keywords": ["mots", "cles", "pertinents"]
-  },
-  "suggestedTagline": "Nouveau slogan accrocheur"
+  "seo": {"title": "Titre SEO", "description": "Meta description", "keywords": ["mots", "cles"]},
+  "suggestedTagline": "Nouveau slogan"
 }`
-            }
-          ]
+    });
+
+    const response = await axios.post(QWEN_VL_URL, {
+      model: QWEN_MODEL,
+      messages: [
+        {
+          role: 'system',
+          content: `Tu es un expert OCR et analyste web. Tu extrais TOUT le texte visible de plusieurs images de site web avec une précision maximale. Tu identifies le nom exact de l'entreprise, les produits, services, prix, et toutes les informations de contact. Tu réponds UNIQUEMENT en JSON valide, sans texte avant ou après.`
+        },
+        {
+          role: 'user',
+          content: contentArray
         }
       ],
-      max_tokens: 3000,
+      max_tokens: 4000,
       temperature: 0.2
     }, {
-      timeout: 120000 // 2 minutes timeout for complex analysis
+      timeout: 180000 // 3 minutes timeout for multi-image analysis
     });
 
     const content = response.data.choices[0].message.content;

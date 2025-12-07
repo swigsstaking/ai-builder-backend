@@ -148,6 +148,156 @@ const takeScreenshot = async (url) => {
 };
 
 /**
+ * Take screenshots of multiple pages of a website
+ * Detects navigation links and captures main pages
+ */
+const takeMultiPageScreenshots = async (baseUrl) => {
+  let browser;
+  const screenshots = [];
+  
+  try {
+    browser = await puppeteer.launch({
+      headless: 'new',
+      args: [
+        '--no-sandbox', 
+        '--disable-setuid-sandbox', 
+        '--disable-web-security',
+        '--disable-features=IsolateOrigins,site-per-process'
+      ]
+    });
+    const page = await browser.newPage();
+    await page.setViewport({ width: 1920, height: 1080 });
+    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+    
+    // Navigate to homepage
+    console.log(`📸 [Multi] Navigating to ${baseUrl}...`);
+    await page.goto(baseUrl, { waitUntil: 'networkidle2', timeout: 30000 });
+    await delay(2000);
+    
+    // Close popups
+    await closePopups(page);
+    await delay(1500);
+    
+    // Take homepage screenshot
+    const homeScreenshot = await page.screenshot({ type: 'jpeg', quality: 90, fullPage: true });
+    screenshots.push({ page: 'home', url: baseUrl, screenshot: homeScreenshot });
+    console.log(`📸 [Multi] Homepage captured: ${(homeScreenshot.length / 1024).toFixed(1)}KB`);
+    
+    // Extract navigation links
+    const navLinks = await page.evaluate((baseUrl) => {
+      const links = [];
+      const baseHost = new URL(baseUrl).host;
+      
+      // Find navigation elements
+      const navSelectors = ['nav a', 'header a', '[class*="nav"] a', '[class*="menu"] a', '.navbar a'];
+      const seenUrls = new Set();
+      
+      navSelectors.forEach(selector => {
+        document.querySelectorAll(selector).forEach(link => {
+          try {
+            const href = link.href;
+            if (!href || seenUrls.has(href)) return;
+            
+            const url = new URL(href);
+            // Only internal links
+            if (url.host !== baseHost) return;
+            // Skip anchors, javascript, tel, mailto
+            if (href.startsWith('javascript:') || href.startsWith('tel:') || 
+                href.startsWith('mailto:') || href.includes('#')) return;
+            // Skip homepage
+            if (url.pathname === '/' || url.pathname === '') return;
+            
+            const text = link.textContent?.trim().toLowerCase() || '';
+            const path = url.pathname.toLowerCase();
+            
+            // Prioritize important pages
+            const priority = 
+              (text.includes('service') || path.includes('service')) ? 1 :
+              (text.includes('about') || text.includes('propos') || path.includes('about')) ? 2 :
+              (text.includes('contact') || path.includes('contact')) ? 3 :
+              (text.includes('shop') || text.includes('boutique') || path.includes('shop') || path.includes('products')) ? 1 :
+              (text.includes('menu') || path.includes('menu')) ? 2 :
+              (text.includes('galerie') || text.includes('gallery') || path.includes('gallery')) ? 4 :
+              (text.includes('team') || text.includes('equipe') || path.includes('team')) ? 5 :
+              10;
+            
+            seenUrls.add(href);
+            links.push({ 
+              url: href, 
+              text: link.textContent?.trim() || path,
+              priority 
+            });
+          } catch(e) {}
+        });
+      });
+      
+      // Sort by priority and limit to 4 pages
+      return links.sort((a, b) => a.priority - b.priority).slice(0, 4);
+    }, baseUrl);
+    
+    console.log(`🔗 [Multi] Found ${navLinks.length} navigation links:`, navLinks.map(l => l.text));
+    
+    // Capture each page
+    for (const link of navLinks) {
+      try {
+        console.log(`📸 [Multi] Capturing ${link.text} (${link.url})...`);
+        await page.goto(link.url, { waitUntil: 'networkidle2', timeout: 20000 });
+        await delay(1500);
+        await closePopups(page);
+        await delay(500);
+        
+        const pageScreenshot = await page.screenshot({ type: 'jpeg', quality: 85, fullPage: true });
+        const pageName = link.text.toLowerCase()
+          .replace(/[àáâã]/g, 'a').replace(/[èéêë]/g, 'e')
+          .replace(/[ìíîï]/g, 'i').replace(/[òóôõ]/g, 'o')
+          .replace(/[ùúûü]/g, 'u').replace(/[^a-z0-9]/g, '-')
+          .replace(/-+/g, '-').replace(/^-|-$/g, '') || 'page';
+        
+        screenshots.push({ 
+          page: pageName, 
+          url: link.url, 
+          screenshot: pageScreenshot 
+        });
+        console.log(`📸 [Multi] ${link.text} captured: ${(pageScreenshot.length / 1024).toFixed(1)}KB`);
+      } catch (err) {
+        console.warn(`⚠️ [Multi] Failed to capture ${link.text}: ${err.message}`);
+      }
+    }
+    
+    console.log(`✅ [Multi] Total pages captured: ${screenshots.length}`);
+    return screenshots;
+    
+  } catch (error) {
+    console.error('Multi-page screenshot error:', error.message);
+    return screenshots.length > 0 ? screenshots : null;
+  } finally {
+    if (browser) await browser.close();
+  }
+};
+
+/**
+ * Helper to close popups on a page
+ */
+const closePopups = async (page) => {
+  await page.evaluate(() => {
+    // Click accept/yes buttons
+    const buttons = document.querySelectorAll('button, a.btn, [role="button"]');
+    buttons.forEach(btn => {
+      const text = btn.textContent?.toLowerCase() || '';
+      if (text.includes('oui') || text.includes('yes') || text.includes('enter') || 
+          text.includes('accept') || text.includes('agree') || text.includes('j\'accepte') ||
+          text.includes('continuer') || text.includes('continue')) {
+        try { btn.click(); } catch(e) {}
+      }
+    });
+    
+    // Remove overlays
+    const overlays = document.querySelectorAll('[class*="overlay"], [class*="modal"], [class*="popup"], [class*="age-gate"]');
+    overlays.forEach(el => { try { el.remove(); } catch(e) {} });
+  });
+};
+
+/**
  * Generate website preview
  * POST /api/ai-builder/generate
  */
@@ -170,27 +320,34 @@ router.post('/generate', async (req, res) => {
       url = `https://${domain}`;
     }
 
-    // Take screenshot
-    console.log(`📸 Taking screenshot of ${url}...`);
-    const screenshot = await takeScreenshot(url);
+    // Take multi-page screenshots
+    console.log(`📸 Taking multi-page screenshots of ${url}...`);
+    const screenshots = await takeMultiPageScreenshots(url);
     
-    if (!screenshot) {
-      // Return mock data if screenshot fails
-      console.log('⚠️ Screenshot failed, using mock data');
-      return res.json({
-        success: true,
-        data: {
-          projectId: `proj_${Date.now()}`,
-          content: generateMockContent(domain),
-          status: 'completed'
-        }
-      });
+    if (!screenshots || screenshots.length === 0) {
+      // Fallback to single screenshot
+      console.log('⚠️ Multi-page failed, trying single screenshot...');
+      const singleScreenshot = await takeScreenshot(url);
+      
+      if (!singleScreenshot) {
+        console.log('⚠️ Screenshot failed, using mock data');
+        return res.json({
+          success: true,
+          data: {
+            projectId: `proj_${Date.now()}`,
+            content: generateMockContent(domain),
+            status: 'completed'
+          }
+        });
+      }
+      
+      screenshots.push({ page: 'home', screenshot: singleScreenshot });
     }
 
-    // Analyze with Qwen
-    console.log(`🔍 Analyzing with Qwen3-VL...`);
+    // Analyze with Qwen (send all screenshots)
+    console.log(`🔍 Analyzing ${screenshots.length} pages with Qwen3-VL...`);
     const analysis = await analyzeWebsiteWithQwen(
-      [{ page: 'home', screenshot }],
+      screenshots,
       domain,
       { email, phone, improvements, style, budget }
     );
