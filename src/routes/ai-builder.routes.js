@@ -509,28 +509,88 @@ function transformAnalysisToContent(analysis, domain) {
   const info = analysis.analysis?.extractedInfo || {};
   const brief = analysis.analysis?.creativeBrief || {};
   const seo = analysis.analysis?.seo || {};
+  
+  // Determine site type and design style
+  const siteType = brief.siteType || info.businessType || 'business';
+  const isEcommerce = siteType.toLowerCase().includes('commerce') || siteType.toLowerCase().includes('shop');
+  const isRestaurant = siteType.toLowerCase().includes('restaurant') || siteType.toLowerCase().includes('cafe');
+  const isPortfolio = siteType.toLowerCase().includes('portfolio') || siteType.toLowerCase().includes('agency');
+  
+  const designStyle = isPortfolio ? 'artistic' : 
+                      isRestaurant ? 'elegant' : 
+                      isEcommerce ? 'modern' : 'modern';
+  
+  // Build navigation from extracted data
+  let navigation = [];
+  if (info.navigation && Array.isArray(info.navigation) && info.navigation.length > 0) {
+    navigation = info.navigation;
+  } else {
+    // Build based on detected sections
+    navigation = ['Accueil'];
+    if (isEcommerce && (info.products?.length > 0 || brief.suggestedSections?.includes('products'))) {
+      navigation.push('Boutique');
+    }
+    if (info.services?.length > 0 || brief.suggestedSections?.includes('services')) {
+      navigation.push('Services');
+    }
+    if (brief.suggestedSections?.includes('about') || info.description) {
+      navigation.push('À propos');
+    }
+    navigation.push('Contact');
+  }
+  
+  // Build products array for e-commerce
+  const products = (info.products || []).map(p => ({
+    name: p.name || p.title || 'Produit',
+    price: p.price || '',
+    description: p.description || '',
+    image: p.image || ''
+  }));
+  
+  // Build services array
+  const services = (info.services || []).map(s => ({
+    title: s.title || s.name || s,
+    description: s.description || ''
+  }));
+  
+  // Use detected colors or fallback
+  const colors = brief.colors || info.detectedColors || {
+    primary: '#0ea5e9',
+    secondary: '#1e293b',
+    accent: '#f59e0b'
+  };
+  
+  // Normalize colors (ensure proper format)
+  const normalizedColors = {
+    primary: colors.primary || colors.mainColor || '#0ea5e9',
+    secondary: colors.secondary || colors.backgroundColor || '#1e293b',
+    accent: colors.accent || colors.accentColor || '#f59e0b'
+  };
+
+  console.log(`🏗️ Building site: type=${siteType}, isEcommerce=${isEcommerce}, products=${products.length}, services=${services.length}`);
+  console.log(`🧭 Navigation: ${navigation.join(', ')}`);
 
   return {
     siteName: info.businessName || domain.replace(/\.(ch|com|fr|de)$/, ''),
-    tagline: analysis.analysis?.suggestedTagline || info.tagline || 'Votre partenaire de confiance',
-    designStyle: brief.siteType === 'portfolio' ? 'artistic' : 
-                 brief.siteType === 'restaurant' ? 'elegant' : 'modern',
-    colors: brief.colors || {
-      primary: '#0ea5e9',
-      secondary: '#1e293b',
-      accent: '#f59e0b'
-    },
-    navigation: info.navigation || ['Accueil', 'Services', 'À propos', 'Contact'],
+    tagline: info.tagline || analysis.analysis?.suggestedTagline || 'Votre partenaire de confiance',
+    designStyle,
+    siteType,
+    isEcommerce,
+    colors: normalizedColors,
+    navigation,
     hero: {
       title: info.businessName || 'Bienvenue',
       subtitle: info.tagline || brief.objective || 'Découvrez nos services',
       description: info.description || '',
-      cta: { text: 'Découvrir', link: '#services' }
+      cta: { 
+        text: isEcommerce ? 'Voir la boutique' : 'Découvrir', 
+        link: isEcommerce ? '#products' : '#services' 
+      }
     },
-    services: (info.services || []).map(s => ({
-      title: s.title || s,
-      description: s.description || ''
-    })),
+    // Products section for e-commerce
+    products: products.length > 0 ? products : null,
+    // Services section
+    services: services.length > 0 ? services : null,
     features: brief.uniqueSellingPoints?.map(f => ({
       title: f,
       description: ''
@@ -544,6 +604,7 @@ function transformAnalysisToContent(analysis, domain) {
       phone: info.contactInfo?.phone || '',
       address: info.contactInfo?.address || ''
     },
+    openingHours: info.openingHours || null,
     testimonials: (info.testimonials || []).map(t => ({
       quote: t.quote,
       author: t.author,
@@ -553,7 +614,9 @@ function transformAnalysisToContent(analysis, domain) {
       title: seo.title || info.businessName || domain,
       description: seo.description || info.description || '',
       keywords: seo.keywords || []
-    }
+    },
+    // Pass detected sections for template rendering
+    detectedSections: info.detectedSections || brief.suggestedSections || []
   };
 }
 
