@@ -38,7 +38,7 @@ export const PAGE_ROUTES = {
 export const AVAILABLE_TEMPLATES = ['modern', 'bold', 'elegant', 'minimal', 'artistic'];
 
 // Couleurs par defaut selon le template
-const DEFAULT_COLORS = {
+export const DEFAULT_COLORS = {
   modern: { primary: '#0ea5e9', secondary: '#1e293b', accent: '#f59e0b' },
   bold: { primary: '#ef4444', secondary: '#0f172a', accent: '#fbbf24' },
   elegant: { primary: '#b8860b', secondary: '#1a1a1a', accent: '#d4af37' },
