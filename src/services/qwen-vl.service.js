@@ -343,10 +343,157 @@ export const analyzeAndGeneratePrompt = async (screenshots, domain, userInfo = {
   };
 };
 
+/**
+ * Analyze multiple pages and generate content for each
+ * @param {Array<{page: string, screenshot: Buffer, url: string}>} screenshots - Screenshots with page info
+ * @param {string} domain - Domain being analyzed
+ * @param {Object} userInfo - Additional info provided by user
+ * @returns {Promise<Object>} Multi-page analysis with content for each page
+ */
+export const analyzeMultiplePages = async (screenshots, domain, userInfo = {}) => {
+  if (!screenshots || screenshots.length === 0) {
+    console.log('⚠️ No screenshots to analyze for multi-page');
+    return null;
+  }
+
+  console.log(`🔍 Qwen3-VL: Analyzing ${screenshots.length} pages for ${domain}`);
+
+  const pageAnalyses = [];
+
+  for (const screenshotData of screenshots) {
+    const { page, screenshot, url } = screenshotData;
+    const base64Image = cleanBase64(screenshot);
+
+    try {
+      console.log(`📄 Analyzing page: ${page} (${url})`);
+
+      const response = await axios.post(QWEN_VL_URL, {
+        model: QWEN_MODEL,
+        messages: [
+          {
+            role: 'system',
+            content: `Tu es un expert en analyse de sites web. Tu extrais le contenu et la structure des pages web pour les recréer. Réponds UNIQUEMENT en JSON valide.`
+          },
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'image_url',
+                image_url: { url: `data:image/jpeg;base64,${base64Image}` }
+              },
+              {
+                type: 'text',
+                text: `Analyse cette page "${page}" du site ${domain} et extrait son contenu.
+
+Retourne un JSON avec cette structure:
+{
+  "pageType": "home | services | about | contact | shop | gallery | menu | events | courses",
+  "pageTitle": "Titre de la page",
+  "sections": [
+    {
+      "type": "hero | features | services | products | gallery | testimonials | pricing | faq | about | contact | cta",
+      "title": "Titre de la section",
+      "subtitle": "Sous-titre si present",
+      "content": "Contenu textuel",
+      "items": [
+        {
+          "title": "Titre item",
+          "description": "Description",
+          "price": "Prix si applicable",
+          "image": "Description de l'image"
+        }
+      ]
+    }
+  ],
+  "navigation": ["Accueil", "Services", "Contact"],
+  "cta": {
+    "text": "Texte du bouton principal",
+    "url": "URL cible"
+  }
+}`
+              }
+            ]
+          }
+        ],
+        max_tokens: 2000,
+        temperature: 0.2
+      }, {
+        timeout: 90000
+      });
+
+      const content = response.data.choices[0].message.content;
+      
+      try {
+        const jsonMatch = content.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const pageAnalysis = JSON.parse(jsonMatch[0]);
+          pageAnalyses.push({
+            page,
+            url,
+            analysis: pageAnalysis
+          });
+          console.log(`✅ Page ${page} analyzed: ${pageAnalysis.sections?.length || 0} sections`);
+        }
+      } catch (parseError) {
+        console.warn(`⚠️ Could not parse JSON for page ${page}`);
+        pageAnalyses.push({
+          page,
+          url,
+          analysis: { rawContent: content }
+        });
+      }
+
+    } catch (error) {
+      console.error(`❌ Error analyzing page ${page}:`, error.message);
+      pageAnalyses.push({
+        page,
+        url,
+        error: error.message
+      });
+    }
+  }
+
+  // Merge all page analyses into a comprehensive site structure
+  const mergedContent = {
+    domain,
+    pages: pageAnalyses,
+    navigation: pageAnalyses[0]?.analysis?.navigation || [],
+    totalPages: pageAnalyses.length,
+    analyzedAt: new Date().toISOString()
+  };
+
+  console.log(`✅ Qwen3-VL: Multi-page analysis complete - ${pageAnalyses.length} pages`);
+  
+  return mergedContent;
+};
+
+/**
+ * Generate page-specific content for Claude
+ * @param {Object} multiPageAnalysis - Analysis from analyzeMultiplePages
+ * @param {string} pageType - Type of page to generate (home, services, about, etc.)
+ * @returns {Object} Page-specific content structure
+ */
+export const generatePageContent = (multiPageAnalysis, pageType) => {
+  if (!multiPageAnalysis?.pages) return null;
+
+  const pageData = multiPageAnalysis.pages.find(p => 
+    p.page === pageType || p.analysis?.pageType === pageType
+  );
+
+  if (!pageData?.analysis) return null;
+
+  return {
+    pageType,
+    ...pageData.analysis
+  };
+};
+
 export default {
   analyzeWebsiteWithQwen,
   generateClaudePrompt,
   extractTextFromImage,
   checkQwenHealth,
-  analyzeAndGeneratePrompt
+  analyzeAndGeneratePrompt,
+  analyzeMultiplePages,
+  generatePageContent
 };
