@@ -13,19 +13,62 @@ const router = express.Router();
 const STRIPE_PUBLISHABLE_KEY = process.env.STRIPE_PUBLISHABLE_KEY || 'pk_test_placeholder';
 
 /**
- * Take a screenshot of a website
+ * Take a full-page screenshot of a website
+ * Captures the entire page content for better analysis
  */
 const takeScreenshot = async (url) => {
   let browser;
   try {
     browser = await puppeteer.launch({
       headless: 'new',
-      args: ['--no-sandbox', '--disable-setuid-sandbox']
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-web-security']
     });
     const page = await browser.newPage();
+    
+    // Set a larger viewport
     await page.setViewport({ width: 1920, height: 1080 });
-    await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
-    const screenshot = await page.screenshot({ type: 'jpeg', quality: 80 });
+    
+    // Set user agent to avoid bot detection
+    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+    
+    // Navigate and wait for full load
+    await page.goto(url, { 
+      waitUntil: ['networkidle0', 'domcontentloaded'], 
+      timeout: 45000 
+    });
+    
+    // Wait extra time for JS to render
+    await page.waitForTimeout(2000);
+    
+    // Scroll down to trigger lazy loading
+    await page.evaluate(async () => {
+      await new Promise((resolve) => {
+        let totalHeight = 0;
+        const distance = 500;
+        const timer = setInterval(() => {
+          const scrollHeight = document.body.scrollHeight;
+          window.scrollBy(0, distance);
+          totalHeight += distance;
+          if (totalHeight >= scrollHeight) {
+            clearInterval(timer);
+            window.scrollTo(0, 0); // Scroll back to top
+            resolve();
+          }
+        }, 100);
+      });
+    });
+    
+    // Wait for lazy-loaded content
+    await page.waitForTimeout(1000);
+    
+    // Take full page screenshot
+    const screenshot = await page.screenshot({ 
+      type: 'jpeg', 
+      quality: 85,
+      fullPage: true // Capture entire page
+    });
+    
+    console.log(`📸 Screenshot captured: ${(screenshot.length / 1024).toFixed(1)}KB`);
     return screenshot;
   } catch (error) {
     console.error('Screenshot error:', error.message);

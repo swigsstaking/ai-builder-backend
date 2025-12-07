@@ -47,7 +47,7 @@ export const analyzeWebsiteWithQwen = async (screenshots, domain, userInfo = {})
       messages: [
         {
           role: 'system',
-          content: `Tu es un expert en création de sites web et en analyse UX/UI. Tu analyses des sites existants et génères des briefs créatifs structurés en JSON. Tes analyses sont précises, détaillées et orientées vers la création de sites web modernes et uniques. Réponds UNIQUEMENT en JSON valide, sans texte avant ou après.`
+          content: `Tu es un expert OCR et analyste web. Tu extrais TOUT le texte visible d'une image de site web avec une précision maximale. Tu identifies le nom exact de l'entreprise, les produits, services, prix, et toutes les informations de contact. Tu réponds UNIQUEMENT en JSON valide, sans texte avant ou après. IMPORTANT: Lis attentivement TOUT le texte visible sur l'image, y compris les menus, titres, descriptions, prix, et footer.`
         },
         {
           role: 'user',
@@ -58,28 +58,23 @@ export const analyzeWebsiteWithQwen = async (screenshots, domain, userInfo = {})
             },
             {
               type: 'text',
-              text: `Analyse ce screenshot du site ${domain} et génère un brief créatif complet.${userInfoContext}
+              text: `TACHE: Extrais TOUT le texte visible de cette image du site ${domain} et analyse-le.${userInfoContext}
 
-IMPORTANT - EXTRACTION DES COULEURS:
-1. Identifie la couleur PRINCIPALE du site (boutons, liens, accents visuels) - doit etre une couleur vive/saturee
-2. Identifie la couleur SECONDAIRE (fond, texte principal, navbar) - souvent sombre ou neutre
-3. Identifie la couleur d'ACCENT (elements de mise en valeur, CTA secondaires)
-4. Retourne les couleurs en format hexadecimal (#RRGGBB)
-5. Si le site utilise du bleu, retourne le bleu exact. Si rouge, retourne le rouge exact, etc.
+ETAPE 1 - EXTRACTION DU TEXTE (TRES IMPORTANT):
+- Lis le LOGO ou le NOM de l'entreprise en haut de la page
+- Lis TOUS les titres et sous-titres
+- Lis les descriptions de produits/services avec leurs PRIX
+- Lis les informations de contact (telephone, email, adresse)
+- Lis le menu de navigation
+- Lis le footer
 
-IMPORTANT - DETECTION DES SECTIONS:
-Analyse le site et identifie quelles sections sont presentes parmi:
-- hero: banniere principale avec titre/slogan
-- features: liste d'atouts/avantages
-- services: liste de services proposes
-- products: grille de produits (e-commerce)
-- gallery: galerie d'images/portfolio
-- team: presentation de l'equipe
-- testimonials: temoignages clients
-- pricing: grille tarifaire
-- faq: questions frequentes
-- about: section a propos
-- contact: formulaire/infos de contact
+ETAPE 2 - IDENTIFICATION DES COULEURS:
+- Couleur PRINCIPALE: boutons, liens, accents (couleur vive)
+- Couleur SECONDAIRE: fond, texte (souvent sombre)
+- Couleur d'ACCENT: CTA, mise en valeur
+
+ETAPE 3 - DETECTION DES SECTIONS presentes:
+- hero, features, services, products, gallery, team, testimonials, pricing, faq, about, contact
 
 Retourne un JSON avec cette structure exacte:
 {
