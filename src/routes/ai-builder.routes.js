@@ -503,7 +503,7 @@ router.post('/upload', async (req, res) => {
 });
 
 /**
- * Transform Qwen analysis to site content
+ * Transform Qwen analysis to site content with MULTI-PAGE support
  */
 function transformAnalysisToContent(analysis, domain) {
   const info = analysis.analysis?.extractedInfo || {};
@@ -519,25 +519,6 @@ function transformAnalysisToContent(analysis, domain) {
   const designStyle = isPortfolio ? 'artistic' : 
                       isRestaurant ? 'elegant' : 
                       isEcommerce ? 'modern' : 'modern';
-  
-  // Build navigation from extracted data
-  let navigation = [];
-  if (info.navigation && Array.isArray(info.navigation) && info.navigation.length > 0) {
-    navigation = info.navigation;
-  } else {
-    // Build based on detected sections
-    navigation = ['Accueil'];
-    if (isEcommerce && (info.products?.length > 0 || brief.suggestedSections?.includes('products'))) {
-      navigation.push('Boutique');
-    }
-    if (info.services?.length > 0 || brief.suggestedSections?.includes('services')) {
-      navigation.push('Services');
-    }
-    if (brief.suggestedSections?.includes('about') || info.description) {
-      navigation.push('À propos');
-    }
-    navigation.push('Contact');
-  }
   
   // Build products array for e-commerce
   const products = (info.products || []).map(p => ({
@@ -567,56 +548,143 @@ function transformAnalysisToContent(analysis, domain) {
     accent: colors.accent || colors.accentColor || '#f59e0b'
   };
 
-  console.log(`🏗️ Building site: type=${siteType}, isEcommerce=${isEcommerce}, products=${products.length}, services=${services.length}`);
-  console.log(`🧭 Navigation: ${navigation.join(', ')}`);
+  const siteName = info.businessName || domain.replace(/\.(ch|com|fr|de)$/, '');
+  const tagline = info.tagline || analysis.analysis?.suggestedTagline || 'Votre partenaire de confiance';
+  const description = info.description || `${siteName} est votre partenaire de confiance.`;
+
+  // Build PAGES structure
+  const pages = [];
+  
+  // 1. HOME PAGE (always present)
+  pages.push({
+    id: 'home',
+    name: 'Accueil',
+    path: '/',
+    type: 'home',
+    content: {
+      hero: {
+        title: siteName,
+        subtitle: tagline,
+        description: description,
+        cta: { 
+          text: isEcommerce ? 'Voir la boutique' : 'Découvrir', 
+          link: isEcommerce ? '/shop' : '/about' 
+        }
+      },
+      features: brief.uniqueSellingPoints?.slice(0, 3).map(f => ({
+        title: f,
+        description: ''
+      })) || [],
+      // Show preview of products/services on home
+      productsPreview: products.slice(0, 3),
+      servicesPreview: services.slice(0, 3)
+    }
+  });
+
+  // 2. SHOP/BOUTIQUE PAGE (for e-commerce)
+  if (isEcommerce || products.length > 0) {
+    pages.push({
+      id: 'shop',
+      name: 'Boutique',
+      path: '/shop',
+      type: 'shop',
+      content: {
+        title: 'Notre Boutique',
+        subtitle: `Découvrez tous nos produits`,
+        products: products
+      }
+    });
+  }
+
+  // 3. SERVICES PAGE (if services exist)
+  if (services.length > 0) {
+    pages.push({
+      id: 'services',
+      name: 'Services',
+      path: '/services',
+      type: 'services',
+      content: {
+        title: 'Nos Services',
+        subtitle: 'Ce que nous proposons',
+        services: services
+      }
+    });
+  }
+
+  // 4. ABOUT PAGE
+  pages.push({
+    id: 'about',
+    name: 'À propos',
+    path: '/about',
+    type: 'about',
+    content: {
+      title: 'À propos de nous',
+      subtitle: tagline,
+      description: description,
+      team: (info.team || []).map(t => ({
+        name: t.name,
+        role: t.role,
+        image: t.image || ''
+      })),
+      testimonials: (info.testimonials || []).map(t => ({
+        quote: t.quote,
+        author: t.author,
+        role: t.role
+      }))
+    }
+  });
+
+  // 5. CONTACT PAGE
+  pages.push({
+    id: 'contact',
+    name: 'Contact',
+    path: '/contact',
+    type: 'contact',
+    content: {
+      title: 'Contactez-nous',
+      subtitle: 'Nous sommes à votre écoute',
+      email: info.contactInfo?.email || '',
+      phone: info.contactInfo?.phone || '',
+      address: info.contactInfo?.address || '',
+      openingHours: info.openingHours || null
+    }
+  });
+
+  // Build navigation from pages
+  const navigation = pages.map(p => ({
+    name: p.name,
+    path: p.path,
+    id: p.id
+  }));
+
+  console.log(`🏗️ Building MULTI-PAGE site: type=${siteType}, pages=${pages.length}`);
+  console.log(`📄 Pages: ${pages.map(p => p.name).join(', ')}`);
+  console.log(`🛒 Products: ${products.length}, Services: ${services.length}`);
 
   return {
-    siteName: info.businessName || domain.replace(/\.(ch|com|fr|de)$/, ''),
-    tagline: info.tagline || analysis.analysis?.suggestedTagline || 'Votre partenaire de confiance',
+    // Global site info
+    siteName,
+    tagline,
     designStyle,
     siteType,
     isEcommerce,
     colors: normalizedColors,
     navigation,
-    hero: {
-      title: info.businessName || 'Bienvenue',
-      subtitle: info.tagline || brief.objective || 'Découvrez nos services',
-      description: info.description || '',
-      cta: { 
-        text: isEcommerce ? 'Voir la boutique' : 'Découvrir', 
-        link: isEcommerce ? '#products' : '#services' 
-      }
+    // Multi-page structure
+    pages,
+    currentPage: 'home',
+    // SEO
+    seo: {
+      title: seo.title || siteName || domain,
+      description: seo.description || description || '',
+      keywords: seo.keywords || []
     },
-    // Products section for e-commerce
-    products: products.length > 0 ? products : null,
-    // Services section
-    services: services.length > 0 ? services : null,
-    features: brief.uniqueSellingPoints?.map(f => ({
-      title: f,
-      description: ''
-    })) || [],
-    about: {
-      title: 'À propos',
-      content: info.description || `${info.businessName || domain} est votre partenaire de confiance.`
-    },
+    // Contact info (global)
     contact: {
       email: info.contactInfo?.email || '',
       phone: info.contactInfo?.phone || '',
       address: info.contactInfo?.address || ''
-    },
-    openingHours: info.openingHours || null,
-    testimonials: (info.testimonials || []).map(t => ({
-      quote: t.quote,
-      author: t.author,
-      role: t.role
-    })),
-    seo: {
-      title: seo.title || info.businessName || domain,
-      description: seo.description || info.description || '',
-      keywords: seo.keywords || []
-    },
-    // Pass detected sections for template rendering
-    detectedSections: info.detectedSections || brief.suggestedSections || []
+    }
   };
 }
 
