@@ -657,9 +657,50 @@ function transformAnalysisToContent(analysis, domain) {
     id: p.id
   }));
 
+  // Build team array (from extracted or generate default)
+  const team = (info.team || []).length > 0 ? info.team.map(t => ({
+    name: t.name || 'Membre',
+    role: t.role || 'Équipe',
+    image: t.image || ''
+  })) : [
+    { name: 'Jean Dupont', role: 'Fondateur', image: '' },
+    { name: 'Marie Martin', role: 'Directrice', image: '' },
+    { name: 'Pierre Bernard', role: 'Expert', image: '' }
+  ];
+
+  // Build testimonials array (from extracted or generate default)
+  const testimonials = (info.testimonials || []).length > 0 ? info.testimonials.map(t => ({
+    quote: t.quote || t.text || '',
+    author: t.author || t.name || 'Client',
+    role: t.role || t.company || ''
+  })) : [
+    { quote: 'Service exceptionnel et équipe très professionnelle. Je recommande vivement !', author: 'Client satisfait', role: 'Entreprise locale' },
+    { quote: 'Qualité irréprochable et délais respectés. Merci pour votre travail.', author: 'Marie D.', role: 'Particulier' }
+  ];
+
+  // Build features/USPs
+  const features = (brief.uniqueSellingPoints || []).slice(0, 4).map(f => ({
+    title: typeof f === 'string' ? f : f.title || 'Avantage',
+    description: typeof f === 'string' ? '' : f.description || ''
+  }));
+  if (features.length === 0) {
+    features.push(
+      { title: 'Qualité', description: 'Standards les plus élevés' },
+      { title: 'Expertise', description: 'Plus de 10 ans d\'expérience' },
+      { title: 'Service', description: 'Accompagnement personnalisé' }
+    );
+  }
+
+  // Build about content
+  const about = {
+    title: 'À propos de nous',
+    content: description || `${siteName} est votre partenaire de confiance, dédié à fournir des solutions de qualité supérieure.`
+  };
+
   console.log(`🏗️ Building MULTI-PAGE site: type=${siteType}, pages=${pages.length}`);
   console.log(`📄 Pages: ${pages.map(p => p.name).join(', ')}`);
   console.log(`🛒 Products: ${products.length}, Services: ${services.length}`);
+  console.log(`👥 Team: ${team.length}, Testimonials: ${testimonials.length}`);
 
   return {
     // Global site info
@@ -673,6 +714,20 @@ function transformAnalysisToContent(analysis, domain) {
     // Multi-page structure
     pages,
     currentPage: 'home',
+    // FLAT DATA for templates (they need this structure)
+    hero: {
+      title: siteName,
+      subtitle: tagline,
+      description: description,
+      cta: { text: isEcommerce ? 'Voir la boutique' : 'Découvrir', link: isEcommerce ? '/shop' : '/about' }
+    },
+    features,
+    services,
+    products,
+    about,
+    team,
+    testimonials,
+    testimonial: testimonials[0] || null,
     // SEO
     seo: {
       title: seo.title || siteName || domain,
